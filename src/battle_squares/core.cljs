@@ -14,35 +14,64 @@
       (.-msRequestAnimationFrame js/window)
       (fn [callback] (js/setTimeout callback 17))))
 
+;; Utils...
 (defn angle-for-movement [[x y]]
   (Math/atan2 y x))
 
 (defn on-screen-position [[x y]]
   [(mod x 1500) (mod y 750)])
 
-(defn random-alien []
-  {:position [(rand-int 1501) (rand-int 751)]
-   :angle    (angle-for-movement [(rand-int 3) (rand-int 3)])
-   :speed    (rand-int 4)
-   :health   100})
-
-(defn starting-game-state []
-  {:player {:position [750 375]
-            :angle    0
-            :speed    0
-            :health   100}
-   :bullets (list)
-   :mouse-position [750 375]
-   :aliens (take 10 (repeatedly random-alien))})
-
-
-;; Starting Game State...
-(defonce app-state (atom (starting-game-state)))
-
-(def player-size 50)
-
 (defn next-position [[x y] angle distance]
   [(+ x (int (Math/floor (* distance (Math/cos angle))))) (+ y (int (Math/floor (* distance (Math/sin angle)))))])
+
+
+;; Game Entities...
+
+
+
+(defn computer-player []
+  {:id       (rand-int 100000)
+   :type     :computer
+   :position [(rand-int 1501) (rand-int 751)]
+   :angle    (angle-for-movement [(rand-int 3) (rand-int 3)])
+   :speed    (+ (rand-int 4) 1)
+   :health   2500})
+
+(defn player [_]
+  {:id       :user
+   :position [750 375]
+   :type     :player
+   :angle    0
+   :speed    0
+   :health   2500})
+
+
+;; Game State...
+
+(defn add-player [game player]
+  (assoc-in game [:players (:id player)] player))
+
+(defn add-starting-player [game]
+  (add-player game (player game)))
+
+(defn add-random-aliens [game number]
+  (reduce add-player game (take number (repeatedly computer-player))))
+
+
+;; Game Management...
+
+(defn start-game-state []
+  (-> {:mouse-position [750 375]
+       :canvas-size [1500 750]
+       :players {}
+       :bullets {}}
+      (add-starting-player)
+      (add-random-aliens 10)))
+
+(defonce app-state (atom (start-game-state)))
+
+
+;; Render...
 
 (defn draw-line-at-angle [context [x y] angle length]
   (.beginPath context)
@@ -51,17 +80,6 @@
   (.moveTo context x y)
   (.lineTo context (+ x (* length (Math/cos angle))) (+ y (* length (Math/sin angle))))
   (.stroke context))
-
-(defn draw-turret [context position angle]
-  (draw-line-at-angle context position angle 35))
-
-(defn draw-player [context {position :position angle :angle hit :hit}]
-  (set! (.-fillStyle context) (if hit "Red" "LightBlue"))
-  (.fillRect context (- (first position) 25) (- (second position) 25) player-size player-size)
-  ;(set! (.-fillStyle context) "Red")
-  ;(.fillRect context (- (first position) 2) (- (second position) 35) 4 35)
-  (draw-turret context position angle)
-  )
 
 (defn draw-bullet [context {position :position}]
   (.beginPath context)
@@ -73,234 +91,216 @@
   (doseq [bullet bullets]
     (draw-bullet context bullet)))
 
-(def colour-health {100 "#00ff00"
-                   90 "#00ef00"
-                   80 "#00df00"
-                   70 "#00cf00"
-                   60 "#00bf00"
-                   50 "#00af00"
-                   40 "#008f00"
-                   30 "#006f00"
-                   20 "#004f00"
-                   10 "#002f00"
-                    0 "#000000"})
+(defn draw-turret [context position angle length]
+  (draw-line-at-angle context position angle length))
 
-(defn draw-alien [context {position :position angle :angle hit :hit health :health}]
-  (set! (.-fillStyle context) (if hit "Red" (or (get colour-health health) "Green")))
-  (.fillRect context (- (first position) 25) (- (second position) 25) player-size player-size)
-  (draw-turret context position angle))
+;(def colour-health {100 "ff"
+;                   90 "ef"
+;                   80 "df"
+;                   70 "cf"
+;                   60 "bf"
+;                   50 "af"
+;                   40 "8f"
+;                   30 "6f"
+;                   20 "4f"
+;                   10 "2f"
+;                    0 "00 "})
 
-(defn draw-aliens [context aliens]
-  (doseq [alien aliens]
-    (draw-alien context alien)))
+(defn player-color [player]
+  (if (= :computer (:type player)) "#00FF00" "#0000FF"))
+    ;(str "#00FF00" (colour-health (:health player)) "00")
+    ;(str "#0000" (colour-health (:health player)))))
+
+(defn player-size [player]
+  (Math/sqrt (:health player)))
+
+(defn draw-player [context {position :position angle :angle :as player}]
+  (let [player-size       (player-size player)]
+    (println player-size)
+    (.save context)
+    ;; draw body...
+    (.translate context (first position) (second position))
+    (.rotate context angle)
+    (set! (.-fillStyle context) (player-color player))
+    (.fillRect context (quot player-size -2) (quot player-size -2) player-size player-size)
+    (.restore context)
+
+    ;; draw turret...
+    (draw-turret context position angle (* 0.7 player-size))
+  ))
+
+(defn draw-players [context players]
+  (doseq [player players] (draw-player context player)))
 
 (defn render []
-  (let [current-state @app-state
+  (let [game    @app-state
         target  (.getElementById js/document "myCanvas")
         context (.getContext target "2d")
-        player  (:player current-state)
-        bullets (:bullets current-state)
-        aliens  (:aliens current-state)]
-    ;(println current-state)
+        players (vals (:players game))
+        bullets (vals (:bullets game))]
     (.clearRect context 0 0 1500 750)
-    (draw-player context player)
+    (draw-players context players)
     (draw-bullets context bullets)
-    (draw-aliens context aliens)
-    (animation-frame render)
-    ))
+    (animation-frame render)))
 
 
-;(defn movement [x y]
-;    [x y])
+;; Game Tick...
 
-;(defn more-left [game amount]
-;  (let [current-movement (get-in game [:player :movement])]
-;    (assoc-in game [:player :movement]
-;      (movement (max (* -1 (or amount 1)) -5) (second current-movement)))))
-;
-;(defn more-right [game amount]
-;  (let [current-movement (get-in game [:player :movement])]
-;    (assoc-in game [:player :movement]
-;      (movement (min (or amount 1) 5) (second current-movement)))))
-;
-;(defn more-up [game amount]
-;  (let [current-movement (get-in game [:player :movement])]
-;    (assoc-in game [:player :movement]
-;      (movement (first current-movement) (max (* -1 (or amount 1)) -5)))))
-;
-;(defn more-down [game amount]
-;  (let [current-movement (get-in game [:player :movement])]
-;    (assoc-in game [:player :movement]
-;      (movement (first current-movement) (min (or amount 1) 5)))))
+(defn hit-check [player bullet]
+  (let [[x y]             (:position player)
+        size              (player-size player)
+        [other-x other-y] (:position bullet)]
+    (when (and (not (= (:owner bullet) (:id player)))
+               (> other-x (- x size))
+               (< other-x (+ x size))
+               (> other-y (- y size))
+               (< other-y (+ y size)))
+      bullet)))
 
-;(defn move-player [game]
-;  (let [{:keys [position movement]} (:player game)]
-;    (assoc-in game [:player :position]
-;      [(mod (+ (first position) (first movement)) 1500) (mod (+ (second position) (second movement)) 750)])))
-
-;(defn stop-x [game]
-;  (let [current-movement (get-in game [:player :movement])]
-;    (assoc-in game [:player :movement]
-;      (movement 0 (second current-movement)))))
-;
-;(defn stop-y [game]
-;  (let [current-movement (get-in game [:player :movement])]
-;    (assoc-in game [:player :movement]
-;      (movement (first current-movement) 0))))
-
-;(defn player-stop-y-if-needed [game mouse-y player-y]
-;  (if (= mouse-y player-y) (stop-y game) game))
-;
-;(defn player-more-down-if-needed [game mouse-y player-y]
-;  (if (> mouse-y player-y) (more-down game (+ 1 (quot (- mouse-y player-y) 20))) game))
-;
-;(defn player-more-up-if-needed [game mouse-y player-y]
-;  (if (< mouse-y player-y) (more-up game (+ 1 (quot (- player-y mouse-y) 20))) game))
-;
-;(defn player-stop-x-if-needed [game mouse-x player-x]
-;  (if (= mouse-x player-x) (stop-x game) game))
-;
-;(defn player-more-right-if-needed [game mouse-x player-x]
-;  (if (> mouse-x player-x) (more-right game (+ 1 (quot (- mouse-x player-x) 20))) game))
-;
-;(defn player-more-left-if-needed [game mouse-x player-x]
-;  (if (< mouse-x player-x) (more-left game (+ 1 (quot (- player-x mouse-x) 20))) game))
-
-;(defn update-player-movement [game]
-;  (let [[player-x player-y] (get-in game [:player :position])
-;        [mouse-x mouse-y]   (get game :mouse-position)]
-;    (-> (player-more-left-if-needed game mouse-x player-x)
-;        (player-more-right-if-needed mouse-x player-x)
-;        (player-stop-x-if-needed mouse-x player-x)
-;        (player-more-up-if-needed mouse-y player-y)
-;        (player-more-down-if-needed mouse-y player-y)
-;        (player-stop-y-if-needed mouse-y player-y))))
-
-
-(defn update-bullet [{:keys [position angle life]}]
-  (when (< life 30)
-    {:position (on-screen-position (next-position position angle 20))
-     :angle angle
-     :life (+ life 1)}))
-
-(defn update-bullets [bullets]
-  (filter identity
-    (map update-bullet bullets)))
-
-(defn update-bullets-game-state [game]
-
-  (assoc game :bullets (update-bullets (:bullets game)))
-  )
-
-(defn hit-check [[x y] size bullet]
-  (let [[other-x other-y] (:position bullet)]
-    (and (> other-x (- x size))
-         (< other-x (+ x size))
-         (> other-y (- y size))
-         (< other-y (+ y size)))))
-
-(defn hit-by-bullet [position bullets]
+(defn hit-by-bullet [player bullets]
   (when bullets
     ;(println position bullets)
     (first (filter identity
-      (map (partial hit-check position 25) bullets)))))
+      (map (partial hit-check player) bullets)))))
 
-(defn update-alien [bullets {:keys [position angle speed health] :as alien}]
-  ;(println alien bullets)
-  (let [hit       (hit-by-bullet position bullets)
-        health    (if hit (- health 10) health)
-        dead      (<= health 0)
-        dead-time (or (:dead-time alien) 0)]
-    (when (< dead-time 30)
-        {:position  (if dead
-                      position
-                      (on-screen-position (next-position position angle speed)))
-         :health    health
-         :dead      dead
-         :dead-time (if dead (+ dead-time 1) dead-time)
-         :angle     angle
-         :speed     (if dead 0 speed)}
-         )))
-
-(defn bullet [thing]
-  {:position (on-screen-position (next-position (:position thing) (:angle thing) 40))
-   :angle    (:angle thing)
+(defn bullet [player]
+  {:id       (rand-int 100000)
+   :position (:position player)
+   :angle    (:angle player)
    :life     0
-   :speed    15})
-
-(defn aliens-shoot [current-state]
-  (let [aliens (:aliens current-state)]
-    (reduce (fn [current-state alien]
-              (if (> (rand-int 1000) 995)
-                (assoc current-state :bullets
-                                     (conj (:bullets current-state) (bullet alien)))
-                current-state)) current-state aliens)))
-
-(defn update-aliens-game-state [game]
-  (let [aliens (:aliens game)]
-    (-> (assoc game :aliens (filter identity (map (partial update-alien (:bullets game)) aliens)))
-        (aliens-shoot))))
+   :speed    15
+   :owner    (:id player)})
 
 (defn speed-for-movement [x y x2 y2]
-  (if (and (= x x2) (= y y2))
-    0
-    (+ 1 (quot (Math/sqrt (+ (* (- x x2)(- x x2)) (* (- y y2) (- y y2)))) 20))))
+  (if (> (Math/sqrt (+ (* (- x x2)(- x x2)) (* (- y y2) (- y y2)))) 40) 7 0))
 
-(defn update-player-movement [game]
+(defn update-player [game player]
+  (assoc-in game [:players (:id player)] player))
+
+(defn remove-player [game player]
+  (update-in game [:players] dissoc (:id player)))
+
+(defn update-user-movement [game]
   (let [[mouse-x mouse-y]   (:mouse-position game)
-        player              (:player game)
+        player              (get-in game [:players :user])
         [player-x player-y] (:position player)]
-    (assoc game :player (assoc player :angle (angle-for-movement [(- mouse-x player-x) (- mouse-y player-y)])
-                                      :speed (min (speed-for-movement mouse-x mouse-y player-x player-y) 20)))))
+    (if (:dead player)
+      (update-player game (assoc player :speed 0))
+      (update-player game (assoc player :angle (angle-for-movement [(- mouse-x player-x) (- mouse-y player-y)])
+                                        :speed (min (speed-for-movement mouse-x mouse-y player-x player-y) 20))))))
 
-(defn move-player [game]
-  (let [{:keys [position angle speed]} (:player game)]
-    (assoc-in game [:player :position]
-              (on-screen-position (next-position position angle speed)))))
+(defn move-user-player [game]
+  (let [{:keys [position angle speed dead dead-time] :as player} (get-in game [:players :user])]
+    (cond
+      (not dead) (update-player game (assoc player :position (on-screen-position (next-position position angle speed))))
+      dead       (update-player game (assoc player :dead-time (+ 1 dead-time))))))
 
-(defn update-player [game]
-  (let [{:keys [position health angle speed] :as player} (:player game)
-        hit       (hit-by-bullet position (:bullets game))
-        health    (if hit (- health 10) health)
-        dead      (<= health 0)
-        dead-time (or (:dead-time player) 0)]
-    (if (< dead-time 120)
-      (assoc game :player
-                  {:position  (if dead
-                                position
-                                (on-screen-position (next-position position angle speed)))
-                   :health    health
-                   :dead      dead
-                   :dead-time (if dead (+ dead-time 1) dead-time)
-                   :angle     angle
-                   :speed     (if dead 0 speed)})
-      (assoc game :restart true))))
+(defn tick-user-player [game]
+  (-> (update-user-movement game)
+      (move-user-player)))
 
-(defn update-player-in-game [game]
-  (-> (update-player-movement game)
-      (update-player)))
+(defn bullets [game]
+  (vals (:bullets game)))
 
-(defn update-game [game]
-  (-> (update-player-in-game game)
-      (update-bullets-game-state)
-      ;(update-player-movement)
-      (update-aliens-game-state)
-      ;(move-player)
-      ))
+(defn player-shoot [game id]
+  (let [player  (get-in game [:players id])
+        bullet  (bullet player)]
+    (assoc-in game [:bullets (:id bullet)] bullet)))
 
-(defn tick []
-  (when (:restart @app-state)
-    (reset! app-state (starting-game-state)))
-  (swap! app-state update-game)
-  (js/setTimeout tick 17))
+(defn maybe-shoot [game player-id]
+  (if (> (rand-int 1000) 995)
+    (player-shoot game player-id)
+    game))
 
-;(defn handle-input [character]
- ; (case character
-  ;  87 (more-up) ;(move-player-up)
-   ; 65 (more-left) ;(move-player-left)
-;    83 (more-down) ;(move-player-down)
- ;   68 (more-right) ;(move-player-right)
-  ;  :do-nothing))
+(defn tick-computer-player [game {:keys [position angle speed dead dead-time] :as computer-player}]
+    (cond
+      (not dead)             (-> (update-player game
+                                                (assoc computer-player
+                                                  :position (on-screen-position (next-position position angle speed))))
+                                 (maybe-shoot (:id computer-player)))
+      (and dead
+           (<= dead-time 30)) (update-player game (assoc computer-player :dead true
+                                                                         :dead-time (+ 1 dead-time)
+                                                                         :speed 0))
+      (and dead
+           (> dead-time 30)) (remove-player game computer-player)))
+
+(defn computer-players [game]
+  (filter (fn [player] (= :computer (:type player))) (vals (:players game))))
+
+(defn tick-computer-players [game]
+  (reduce tick-computer-player game (computer-players game)))
+
+(defn update-bullet [game bullet]
+  (assoc-in game [:bullets (:id bullet)] bullet))
+
+(defn remove-bullet [game bullet]
+  (update-in game [:bullets] dissoc (:id bullet)))
+
+(defn tick-bullet [game {:keys [position angle life] :as bullet}]
+  (if (< life 30)
+    (update-bullet game
+                   (assoc bullet :position (on-screen-position (next-position position angle 20))
+                                 :life     (+ life 1)))
+    (remove-bullet game bullet)))
+
+(defn tick-bullets [game]
+  (reduce tick-bullet game (vals (:bullets game))))
+
+(defn players [game]
+  (vals (:players game)))
+
+(defn damage-from-bullet [game player bullet]
+  (let [health (max (- (:health player) 250) 0)
+        dead   (= health 0)]
+    (update-player game (assoc player :health health
+                                      :dead   dead))))
+
+(defn reward-health-for-hit [game bullet]
+  (let [owner (get-in game [:players (:owner bullet)])]
+    (if (and owner (not (:dead owner)))
+      (update-player game (assoc owner :health (+ 250 (:health owner))))
+      game)))
+
+(defn update-player-hit [game player bullet]
+  (-> (damage-from-bullet game player bullet)
+      (reward-health-for-hit bullet)
+      (remove-bullet bullet)))
+
+(defn collision-detect [game player]
+  (if-let [bullet (hit-by-bullet player (bullets game))]
+    (update-player-hit game player bullet)
+    game))
+
+(defn tick-collision-detect [game]
+  (reduce collision-detect game (players game)))
+
+(defn user-player-is-dead [game]
+  (and (get-in game [:players :user :dead])
+       (> 120 (get-in game [:players :user :dead-time]))))
+
+(defn no-more-opponents [game]
+  (not (first (filter identity (computer-players game)))))
+
+(defn tick-end-game? [game]
+  (if (or (user-player-is-dead game)
+          (no-more-opponents game))
+    (assoc game :restart true)
+    game))
+
+(defn tick-game [game]
+  (if (:restart game)
+    (start-game-state)
+    (-> (tick-user-player game)
+        (tick-computer-players)
+        (tick-bullets)
+        (tick-collision-detect)
+        (tick-end-game?)
+        )))
+
+(defn game-ticker []
+  (swap! app-state tick-game)
+  (js/setTimeout game-ticker 17))
 
 (defn update-mouse-position [current-state mouse-x mouse-y]
   (assoc current-state :mouse-position [mouse-x mouse-y]))
@@ -310,14 +310,11 @@
         mouse-y (aget mouse-event "clientY")]
     (swap! app-state update-mouse-position mouse-x mouse-y)))
 
-
-(defn player-shoot [current-state]
-  (let [player  (:player current-state)
-        bullets (:bullets current-state)]
-    (assoc current-state :bullets (conj bullets (bullet player)))))
+(defn user-shoot [game]
+  (player-shoot game :user))
 
 (defn handle-mouse-click [_]
-    (swap! app-state player-shoot))
+  (swap! app-state user-shoot))
 
 ;; Use wrapper functions so that we can hot-reload updated handlers...
 (defn attach-handle-mouse-move [event] (handle-mouse-move event))
@@ -338,7 +335,8 @@
   (do
     (event-setup)
     (animation-frame attach-render)
-    (tick)))
+    (game-ticker)
+    ))
 
 (comment start-game)
 
