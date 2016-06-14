@@ -14,36 +14,43 @@
       (.-msRequestAnimationFrame js/window)
       (fn [callback] (js/setTimeout callback 17))))
 
+
 ;; Utils...
 (defn angle-for-movement [[x y]]
   (Math/atan2 y x))
 
-(defn on-screen-position [[x y]]
-  [(mod x 1500) (mod y 750)])
+(defn valid-game-position [game [x y]]
+  (let [[game-dimension-x game-dimension-y] (:game-dimensions game)]
+    [(mod x game-dimension-x) (mod y game-dimension-y)]))
 
 (defn next-position [[x y] angle distance]
-  [(+ x (int (Math/floor (* distance (Math/cos angle))))) (+ y (int (Math/floor (* distance (Math/sin angle)))))])
+  [(+ x (int (Math/floor (* distance (Math/cos angle)))))
+   (+ y (int (Math/floor (* distance (Math/sin angle)))))])
+
+(defn screen-dimensions []
+  [(aget (.getElementById js/document "app") "clientWidth")
+   (aget (.getElementById js/document "app") "clientHeight")])
 
 
 ;; Game Entities...
 
+(defn computer-player [game]
+  (let [[x y] (:game-dimensions game)]
+    {:id       (rand-int 100000)
+     :type     :computer
+     :position [(rand-int x) (rand-int y)]
+     :angle    (angle-for-movement [(rand-int 3) (rand-int 3)])
+     :speed    (+ (rand-int 4) 1)
+     :health   2500}))
 
-
-(defn computer-player []
-  {:id       (rand-int 100000)
-   :type     :computer
-   :position [(rand-int 1501) (rand-int 751)]
-   :angle    (angle-for-movement [(rand-int 3) (rand-int 3)])
-   :speed    (+ (rand-int 4) 1)
-   :health   2500})
-
-(defn player [_]
-  {:id       :user
-   :position [750 375]
-   :type     :player
-   :angle    0
-   :speed    0
-   :health   2500})
+(defn player [game]
+  (let [[x y] (:game-dimensions game)]
+    {:id       :user
+     :position [(quot x 2) (quot y 2)]
+     :type     :player
+     :angle    0
+     :speed    0
+     :health   2500}))
 
 
 ;; Game State...
@@ -55,92 +62,136 @@
   (add-player game (player game)))
 
 (defn add-random-aliens [game number]
-  (reduce add-player game (take number (repeatedly computer-player))))
+  (reduce add-player game (take number (repeatedly (partial computer-player game)))))
 
 
 ;; Game Management...
 
 (defn start-game-state []
-  (-> {:mouse-position [750 375]
-       :canvas-size [1500 750]
-       :players {}
-       :bullets {}}
-      (add-starting-player)
-      (add-random-aliens 10)))
+  (let [[screen-dimension-x screen-dimension-y] (screen-dimensions)]
+    (-> {:game-dimensions   [1912 962]
+         :screen-dimensions [screen-dimension-x screen-dimension-y]
+         :mouse-position    [(quot screen-dimension-x 2) (quot screen-dimension-y 2)]
+         :players {}
+         :bullets {}
+         :brake   :off}
+        (add-starting-player)
+        (add-random-aliens 5)
+        )))
 
 (defonce app-state (atom (start-game-state)))
 
 
 ;; Render...
 
-(defn draw-line-at-angle [context [x y] angle length]
+(defn draw-line-at-angle [context [x y] angle length width]
   (.beginPath context)
-  (set! (. context -lineWidth) 4)
+  (set! (. context -lineWidth) width)
   (set! (. context -strokeStyle) "#AA0000")
   (.moveTo context x y)
   (.lineTo context (+ x (* length (Math/cos angle))) (+ y (* length (Math/sin angle))))
   (.stroke context))
 
-(defn draw-bullet [context {position :position}]
+(defn draw-line [context [from-x from-y] [to-x to-y]]
   (.beginPath context)
-  (set! (.-fillStyle context) "Red")
-  (.arc context (first position) (second position) 4 0 (* Math/PI 2) false)
-  (.fill context))
+  (set! (. context -lineWidth) 1)
+  (set! (. context -strokeStyle) "Silver")
+  (.moveTo context from-x from-y)
+  (.lineTo context to-x to-y)
+  (.stroke context))
 
-(defn draw-bullets [context bullets]
+(defn area-contains [area position]
+  (and (>= (first position) (first area))
+       (>= (second position) (second area))
+       (<= (first position) (nth area 2))
+       (<= (second position) (nth area 3))))
+
+(defn draw-bullet [context {position :position size :size} visible-area]
+  (when (area-contains visible-area position)
+      (.beginPath context)
+      (set! (.-fillStyle context) "Red")
+      (.arc context
+            (- (first position) (first visible-area))
+            (- (second position) (second visible-area)) size 0 (* Math/PI 2) false)
+      (.fill context)))
+
+(defn draw-bullets [context bullets visible-area]
   (doseq [bullet bullets]
-    (draw-bullet context bullet)))
+    (draw-bullet context bullet visible-area)))
 
-(defn draw-turret [context position angle length]
-  (draw-line-at-angle context position angle length))
-
-;(def colour-health {100 "ff"
-;                   90 "ef"
-;                   80 "df"
-;                   70 "cf"
-;                   60 "bf"
-;                   50 "af"
-;                   40 "8f"
-;                   30 "6f"
-;                   20 "4f"
-;                   10 "2f"
-;                    0 "00 "})
+(defn draw-turret [context position angle length width]
+  (draw-line-at-angle context position angle length width))
 
 (defn player-color [player]
   (if (= :computer (:type player)) "#00FF00" "#0000FF"))
-    ;(str "#00FF00" (colour-health (:health player)) "00")
-    ;(str "#0000" (colour-health (:health player)))))
 
 (defn player-size [player]
   (Math/sqrt (:health player)))
 
-(defn draw-player [context {position :position angle :angle :as player}]
-  (let [player-size       (player-size player)]
-    (println player-size)
-    (.save context)
-    ;; draw body...
-    (.translate context (first position) (second position))
-    (.rotate context angle)
-    (set! (.-fillStyle context) (player-color player))
-    (.fillRect context (quot player-size -2) (quot player-size -2) player-size player-size)
-    (.restore context)
+(defn draw-player [context {position :position angle :angle :as player} visible-area]
+  (when (area-contains visible-area position)
+    (let [player-size  (player-size player)
+          turret-width (quot player-size 8)]
+      (.save context)
+      ;; draw body...
+      (.translate context
+                  (- (first position) (first visible-area))
+                  (- (second position) (second visible-area)))
+      (.rotate context angle)
+      (set! (.-fillStyle context) (player-color player))
+      (.fillRect context (quot player-size -2) (quot player-size -2) player-size player-size)
+      (.restore context)
 
-    ;; draw turret...
-    (draw-turret context position angle (* 0.7 player-size))
+      ;; draw turret...
+      (draw-turret context [(- (first position)  (first visible-area))
+                            (- (second position) (second visible-area))] angle (* 0.7 player-size) turret-width))
   ))
 
-(defn draw-players [context players]
-  (doseq [player players] (draw-player context player)))
+(defn draw-players [context players visible-area]
+  (doseq [player players] (draw-player context player visible-area)))
+
+(defn calculate-visible-area [game]
+  (let [[player-x player-y] (get-in game [:players :user :position])
+        half-screen-x       (quot (first (:screen-dimensions game)) 2)
+        half-screen-y       (quot (second (:screen-dimensions game)) 2)]
+    [(- player-x half-screen-x) (- player-y half-screen-y)
+     (+ player-x half-screen-x) (+ player-y half-screen-y)]))
+
+(defn visible-horizontal-background [visible-area]
+  (filter (fn [position] (= 0 (rem position 250))) (range (second visible-area) (nth visible-area 3))))
+
+(defn draw-horizontal-background [context visible-area]
+  (doseq [y-pos (visible-horizontal-background visible-area)]
+    (draw-line context
+               [0 (- y-pos (second visible-area))]
+               [(nth visible-area 2) (- y-pos (second visible-area))])))
+
+(defn visible-vertical-background [visible-area]
+  (filter (fn [position] (= 0 (rem position 250))) (range (first visible-area) (nth visible-area 2))))
+
+(defn draw-vertical-background [context visible-area]
+  (doseq [x-pos (visible-vertical-background visible-area)]
+    (draw-line context
+               [(- x-pos (first visible-area)) 0]
+               [(- x-pos (first visible-area)) (nth visible-area 3)])))
+
+(defn draw-background [context visible-area]
+  (draw-vertical-background context visible-area)
+  (draw-horizontal-background context visible-area)
+  )
 
 (defn render []
   (let [game    @app-state
+        [screen-dimension-x screen-dimension-y] (:screen-dimensions game)
         target  (.getElementById js/document "myCanvas")
         context (.getContext target "2d")
+        visible-area (calculate-visible-area game)
         players (vals (:players game))
         bullets (vals (:bullets game))]
-    (.clearRect context 0 0 1500 750)
-    (draw-players context players)
-    (draw-bullets context bullets)
+    (.clearRect context 0 0 screen-dimension-x screen-dimension-y)
+    (draw-background context visible-area)
+    (draw-players context players visible-area)
+    (draw-bullets context bullets visible-area)
     (animation-frame render)))
 
 
@@ -169,6 +220,7 @@
    :angle    (:angle player)
    :life     0
    :speed    15
+   :size     (quot (player-size player) 12)
    :owner    (:id player)})
 
 (defn speed-for-movement [x y x2 y2]
@@ -181,18 +233,43 @@
   (update-in game [:players] dissoc (:id player)))
 
 (defn update-user-movement [game]
-  (let [[mouse-x mouse-y]   (:mouse-position game)
+  (let [visible-area              (calculate-visible-area game)
+        [raw-mouse-x raw-mouse-y] (:mouse-position game)
+        [mouse-x mouse-y]         [(+ raw-mouse-x (first visible-area))
+                                   (+ raw-mouse-y (second visible-area))]
         player              (get-in game [:players :user])
         [player-x player-y] (:position player)]
     (if (:dead player)
       (update-player game (assoc player :speed 0))
       (update-player game (assoc player :angle (angle-for-movement [(- mouse-x player-x) (- mouse-y player-y)])
-                                        :speed (min (speed-for-movement mouse-x mouse-y player-x player-y) 20))))))
+                                        :speed (if (= (:brake game) :on)
+                                                 0
+                                                 (min (speed-for-movement mouse-x mouse-y player-x player-y) 20)))))))
+
+(defn collision-test [player new-position other-player]
+  (let [[player-x player-y]             new-position
+        the-player-size                 (player-size player)
+        [other-player-x other-player-y] (:position other-player)
+        other-player-size               (player-size other-player)
+        collision?                      (and (not= (:id player) (:id other-player))
+                                             (>= (+ the-player-size other-player-size)
+                                                 (+ (js/Math.abs (- player-x other-player-x))
+                                                    (js/Math.abs (- player-y other-player-y)))))]
+    ;(println "collision between" player other-player)
+    collision?))
+
+(defn collision? [game player-id new-position]
+  (let [player (get-in game [:players player-id])]
+    (first (filter identity (map (partial collision-test player new-position) (vals (:players game)))))))
+
+(defn prevent-collision [game player-id position new-position]
+  (if (collision? game player-id new-position) position new-position))
 
 (defn move-user-player [game]
   (let [{:keys [position angle speed dead dead-time] :as player} (get-in game [:players :user])]
     (cond
-      (not dead) (update-player game (assoc player :position (on-screen-position (next-position position angle speed))))
+      (not dead) (update-player game (assoc player :position (prevent-collision game :user position
+                                                               (valid-game-position game (next-position position angle speed)))))
       dead       (update-player game (assoc player :dead-time (+ 1 dead-time))))))
 
 (defn tick-user-player [game]
@@ -212,21 +289,48 @@
     (player-shoot game player-id)
     game))
 
-(defn tick-computer-player [game {:keys [position angle speed dead dead-time] :as computer-player}]
-    (cond
-      (not dead)             (-> (update-player game
-                                                (assoc computer-player
-                                                  :position (on-screen-position (next-position position angle speed))))
-                                 (maybe-shoot (:id computer-player)))
-      (and dead
-           (<= dead-time 30)) (update-player game (assoc computer-player :dead true
-                                                                         :dead-time (+ 1 dead-time)
-                                                                         :speed 0))
-      (and dead
-           (> dead-time 30)) (remove-player game computer-player)))
+(defn update-computer-player [game computer-player-id]
+  (if-let [computer-player (get-in game [:players computer-player-id])]
+    (let [dead      (:dead computer-player)
+          dead-time (:dead-time computer-player)
+          position  (:position computer-player)
+          angle     (:angle computer-player)
+          speed     (:speed computer-player)]
+      (cond
+        (not dead)             (-> (update-player game
+                                                  (assoc computer-player
+                                                    :position (prevent-collision game computer-player-id position
+                                                                                 (valid-game-position game (next-position position angle speed)))))
+                                   (maybe-shoot (:id computer-player)))
+        (and dead
+             (<= dead-time 30)) (update-player game (assoc computer-player :dead true
+                                                                           :dead-time (+ 1 dead-time)
+                                                                           :speed 0))
+        (and dead
+             (> dead-time 30)) (-> (remove-player game computer-player)
+                                   (add-player (computer-player game)))))
+    game))
+
+(defn computer-chase-player [game computer-player-id]
+  (if-let [computer-player        (get-in game [:players computer-player-id])]
+    (let [[computer-x computer-y] (:position computer-player)
+          user-player             (get-in game [:players :user])
+          [player-x player-y]     (:position user-player)]
+      (update-player game (assoc computer-player
+                            :angle (angle-for-movement [(- player-x computer-x) (- player-y computer-y)]))))
+    game))
+
+(defn computer-player-think [game computer-player-id]
+  (if (> (rand-int 5000) 4500)
+    (computer-chase-player game computer-player-id)
+    game))
+
+(defn tick-computer-player [game computer-player-id]
+  (-> (computer-player-think game computer-player-id)
+      (update-computer-player computer-player-id)))
 
 (defn computer-players [game]
-  (filter (fn [player] (= :computer (:type player))) (vals (:players game))))
+  (map :id (filter (fn [player] (= :computer (:type player))) (vals (:players game)))))
 
 (defn tick-computer-players [game]
   (reduce tick-computer-player game (computer-players game)))
@@ -240,7 +344,7 @@
 (defn tick-bullet [game {:keys [position angle life] :as bullet}]
   (if (< life 30)
     (update-bullet game
-                   (assoc bullet :position (on-screen-position (next-position position angle 20))
+                   (assoc bullet :position (valid-game-position game (next-position position angle 20))
                                  :life     (+ life 1)))
     (remove-bullet game bullet)))
 
@@ -302,8 +406,8 @@
   (swap! app-state tick-game)
   (js/setTimeout game-ticker 17))
 
-(defn update-mouse-position [current-state mouse-x mouse-y]
-  (assoc current-state :mouse-position [mouse-x mouse-y]))
+(defn update-mouse-position [game mouse-x mouse-y]
+  (assoc game :mouse-position [mouse-x mouse-y]))
 
 (defn handle-mouse-move [mouse-event]
   (let [mouse-x (aget mouse-event "clientX")
@@ -316,9 +420,17 @@
 (defn handle-mouse-click [_]
   (swap! app-state user-shoot))
 
+(defn toggle-break [game]
+  (assoc game :brake ((:brake game) {:on :off :off :on})))
+
+(defn handle-keydown [keycode]
+  (when (= 32 keycode)
+    (swap! app-state toggle-break)))
+
 ;; Use wrapper functions so that we can hot-reload updated handlers...
 (defn attach-handle-mouse-move [event] (handle-mouse-move event))
 (defn attach-handle-mouse-click [event] (handle-mouse-click event))
+(defn attach-handle-keydown [keycode] (handle-keydown keycode))
 (defn attach-render [] (render))
 
 (defn event-setup []
@@ -326,13 +438,22 @@
       (.-MOUSEMOVE events/EventType) #(attach-handle-mouse-move %))
   (events/listen (dom/getWindow)
       (.-CLICK events/EventType) #(attach-handle-mouse-click %))
-  ;(events/listen (dom/getWindow)
-  ;   (.-KEYDOWN events/EventType) #(handle-input (aget % "keyCode")))
+  (events/listen (dom/getWindow)
+     (.-KEYDOWN events/EventType) #(attach-handle-keydown (aget % "keyCode")))
   )
 
+(defn canvas-setup []
+  (let [screen-dimensions (screen-dimensions)
+        canvas-element    (.getElementById js/document "myCanvas")]
+    (set! (.-width canvas-element) (first screen-dimensions))
+    (set! (.-height canvas-element) (second screen-dimensions))
+    (swap! app-state assoc :screen-dimensions screen-dimensions)))
+
 ;; One time setup...
+
 (defonce start-game
   (do
+    (canvas-setup)
     (event-setup)
     (animation-frame attach-render)
     (game-ticker)
@@ -341,7 +462,9 @@
 (comment start-game)
 
 ;; TODO
-;; Player Get Hit By Bullets
-;; Have Hit Points - start with 100, do 10 damage.
-;; When you hit, receive the hitpoints.
-;; Rotate ships to draw
+;; Bug: Background doesn't draw correctly.
+;; Show Edge of game.
+;; Prevent Ships from going into each other.
+;; Shoot from end of turret.
+;; Get slower when bigger.
+;; Make aliens smarter.
