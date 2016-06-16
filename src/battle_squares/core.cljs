@@ -67,9 +67,11 @@
 
 ;; Game Management...
 
+(def game-dimensions [2500 1500])
+
 (defn start-game-state []
   (let [[screen-dimension-x screen-dimension-y] (screen-dimensions)]
-    (-> {:game-dimensions   [1912 962]
+    (-> {:game-dimensions   game-dimensions
          :screen-dimensions [screen-dimension-x screen-dimension-y]
          :mouse-position    [(quot screen-dimension-x 2) (quot screen-dimension-y 2)]
          :players {}
@@ -157,31 +159,49 @@
     [(- player-x half-screen-x) (- player-y half-screen-y)
      (+ player-x half-screen-x) (+ player-y half-screen-y)]))
 
-(defn visible-horizontal-background [visible-area]
-  (filter (fn [position] (= 0 (rem position 250))) (range (second visible-area) (nth visible-area 3))))
+(defn rect-intersection [[left top right bottom] [left-2 top-2 right-2 bottom-2]]
+  (cond
+    (< bottom top-2) nil
+    (> top bottom-2) nil
+    (> left right-2) nil
+    (< right left-2) nil
+    :default [(max left left-2) (max top top-2) (min right right-2) (min bottom bottom-2)]))
 
-(defn draw-horizontal-background [context visible-area]
-  (doseq [y-pos (visible-horizontal-background visible-area)]
+(defn draw-rect [context [left top right bottom]]
+  (set! (.-fillStyle context) "white")
+  (.fillRect context left top (- right left) (- bottom top)))
+
+(defn screen-coordinates [[left top right bottom] visible-area]
+  (let [visible-left (first visible-area)
+        visible-top  (second visible-area)]
+    [(- left visible-left) (- top visible-top) (- right visible-left) (- bottom visible-top)]))
+
+(defn draw-background [context [game-width game-height] visible-area]
+  (draw-rect context
+             (screen-coordinates (rect-intersection visible-area [0 0 game-width game-height]) visible-area)))
+
+(defn calculate-visible-terrain-lines [[game-width game-height] visible-area]
+  (let [[left top right bottom] (rect-intersection visible-area [0 0 game-width game-height])
+        visible-horizontals     (filter #(zero? (rem % 250)) (range top bottom))
+        visible-verticals       (filter #(zero? (rem % 250)) (range left right))]
+    (concat
+      (for [x visible-verticals] {:from {:x x :y top} :to {:x x :y bottom}})
+      (for [y visible-horizontals] {:from {:x left :y y} :to {:x right :y y}}))))
+
+(defn screen-coordinate [{:keys [x y]} visible-area]
+  (let [visible-left (first visible-area)
+        visible-top  (second visible-area)]
+    [(- x visible-left) (- y visible-top)]))
+
+(defn draw-terrain [context game visible-area]
+  (doseq [line (calculate-visible-terrain-lines (:game-dimensions game) visible-area)]
     (draw-line context
-               [0 (- y-pos (second visible-area))]
-               [(nth visible-area 2) (- y-pos (second visible-area))])))
-
-(defn visible-vertical-background [visible-area]
-  (filter (fn [position] (= 0 (rem position 250))) (range (first visible-area) (nth visible-area 2))))
-
-(defn draw-vertical-background [context visible-area]
-  (doseq [x-pos (visible-vertical-background visible-area)]
-    (draw-line context
-               [(- x-pos (first visible-area)) 0]
-               [(- x-pos (first visible-area)) (nth visible-area 3)])))
-
-(defn draw-background [context visible-area]
-  (draw-vertical-background context visible-area)
-  (draw-horizontal-background context visible-area)
-  )
+               (screen-coordinate (:from line) visible-area)
+               (screen-coordinate (:to line) visible-area))))
 
 (defn render []
   (let [game    @app-state
+        game-dimensions (:game-dimensions game)
         [screen-dimension-x screen-dimension-y] (:screen-dimensions game)
         target  (.getElementById js/document "myCanvas")
         context (.getContext target "2d")
@@ -189,7 +209,8 @@
         players (vals (:players game))
         bullets (vals (:bullets game))]
     (.clearRect context 0 0 screen-dimension-x screen-dimension-y)
-    (draw-background context visible-area)
+    (draw-background context game-dimensions visible-area)
+    (draw-terrain context game visible-area)
     (draw-players context players visible-area)
     (draw-bullets context bullets visible-area)
     (animation-frame render)))
