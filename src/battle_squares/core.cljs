@@ -1,7 +1,9 @@
 (ns battle-squares.core
   (:require
-   [goog.dom :as dom]
-   [goog.events :as events]))
+    [battle-squares.dom :refer [element-by-id]]
+    [battle-squares.geometry :as geometry]
+    [goog.dom :as dom]
+    [goog.events :as events]))
 
 (enable-console-print!)
 ;(def log (.-log js/console))
@@ -452,7 +454,11 @@
 (defn attach-handle-mouse-move [event] (handle-mouse-move event))
 (defn attach-handle-mouse-click [event] (handle-mouse-click event))
 (defn attach-handle-keydown [keycode] (handle-keydown keycode))
-(defn attach-render [] (render))
+(defn attach-render [game-state]
+  (render @game-state)
+  (attach-render game-state))
+
+;; Event Setup...
 
 (defn event-setup []
   (events/listen (dom/getWindow)
@@ -463,18 +469,36 @@
      (.-KEYDOWN events/EventType) #(attach-handle-keydown (aget % "keyCode")))
   )
 
-(defn canvas-setup []
-  (let [screen-dimensions (screen-dimensions)
-        canvas-element    (.getElementById js/document "myCanvas")]
-    (set! (.-width canvas-element) (first screen-dimensions))
-    (set! (.-height canvas-element) (second screen-dimensions))
-    (swap! app-state assoc :screen-dimensions screen-dimensions)))
+;; Canvas Setup...
+
+(defn canvas-setup
+  "Ensure that the canvas is set to match the size of its container (typically meaning full screen)..."
+  [game-state canvas-element-id canvas-container-element-id]
+  (let [game-canvas-holder (element-by-id canvas-container-element-id)
+        game-canvas        (element-by-id canvas-element-id)
+        screen-dimensions  (geometry/rectangle
+                             (geometry/position 0 0)
+                             (geometry/position (aget game-canvas-holder "clientWidth")
+                                                (aget game-canvas-holder "clientWidth")))]
+    (set! (.-width game-canvas) (geometry/width screen-dimensions))
+    (set! (.-height game-canvas) (geometry/height screen-dimensions))
+    (swap! game-state assoc :screen-dimensions screen-dimensions)))
+
+;; Rendering Setup...
+
+(defn renderer-setup [game-state]
+  (animation-frame (fn [] (attach-render game-state))))
 
 ;; One time setup...
 
+(def canvas-element-id "gameCanvas")
+(def canvas-container-element-id "gameCanvasContainer")
+
+(def game-state (atom {}))
+
 (defonce start-game
   (do
-    (canvas-setup)
+    (canvas-setup game-state canvas-element-id canvas-container-element-id)
     (event-setup)
     (animation-frame attach-render)
     (game-ticker)
