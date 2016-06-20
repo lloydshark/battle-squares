@@ -1,6 +1,6 @@
 # battle-squares
 
-A simple canvas based game in clojurescript.
+A simple full-screen canvas based game in clojurescript.
 
 ## Overview
 
