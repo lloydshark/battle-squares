@@ -102,7 +102,8 @@
 
 (defn valid-game-position [game [x y]]
   (let [game-area (game-area game)]
-    [(mod x (geometry/width game-area)) (mod y (geometry/height game-area))]))
+    [(max 0 (min x (geometry/width game-area)))
+     (max 0 (min y (geometry/height game-area)))]))
 
 ;;;;
 
