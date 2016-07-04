@@ -6,12 +6,12 @@ html, body {
   padding: 0px;
 }
 
-#app {
+#gameCanvasHolder {
   width: 100%;
   height: 100%;
 }
 
-#myCanvas {
+#gameCanvas {
   width: 100%;
   height: 100%;
   background-color: lightblue;
