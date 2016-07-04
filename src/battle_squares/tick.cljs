@@ -49,7 +49,7 @@
         [other-player-x other-player-y] (:position other-player)
         other-player-size               (model/player-size other-player)
         collision?                      (and (not= (:id player) (:id other-player))
-                                             (>= (+ the-player-size other-player-size)
+                                             (>= (+ (quot the-player-size 2) (quot other-player-size 2))
                                                  (+ (js/Math.abs (- player-x other-player-x))
                                                     (js/Math.abs (- player-y other-player-y)))))]
     collision?))
