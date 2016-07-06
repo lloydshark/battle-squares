@@ -3,6 +3,12 @@
 
 ;; Accessors
 
+(defn position [player]
+  (:position player))
+
+(defn health [player]
+  (:health player))
+
 (defn players [game]
   (vals (:players game)))
 
@@ -53,6 +59,25 @@
 
 (defn alive? [player]
   (pos? (:health player)))
+
+(defn collision-damage [player]
+  (quot (health player) 200))
+
+(defn increase-player-health [game player-id health-increase]
+  (if-let [player (get-player game player-id)]
+    (update-in game [:players player-id] assoc :health (+ (:health player)
+                                                          health-increase))
+    game))
+
+(defn decrease-player-health [game player-id health-decrease]
+  (if-let [player (get-player game player-id)]
+    (let [updated-health (max (- (:health player)
+                                 health-decrease)
+                              0)]
+      (update-in game [:players player-id] assoc
+                 :health updated-health
+                 :dead (= updated-health 0)))
+      game))
 
 (defn bullet [player]
   {:id       (rand-int 100000)

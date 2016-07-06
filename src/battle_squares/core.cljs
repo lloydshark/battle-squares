@@ -58,8 +58,6 @@
 (def canvas-element-id "gameCanvas")
 (def canvas-container-element-id "gameCanvasContainer")
 
-(def game-state (atom {}))
-
 (defn start-game [game-state]
   (canvas-setup game-state canvas-element-id canvas-container-element-id)
   (initialise-game game-state)
@@ -68,12 +66,16 @@
   (game-ticker game-state)
   )
 
-(def game (start-game game-state))
+(defonce game-state (atom {}))
+
+(defonce game (start-game game-state))
 
 ;;;;;;;;;;;;;;
 (comment game)
 ;;;;;;;;;;;;;;
 
 ;; TODO
+;; Allow ships to collide and take mass from each other.
+;; Make aliens evade being shot.
 ;; Shoot from end of turret.
 ;; Get slower when bigger.

@@ -54,19 +54,18 @@
                                                     (js/Math.abs (- player-y other-player-y)))))]
     collision?))
 
-(defn collision? [game player-id new-position]
-  (let [player (get-in game [:players player-id])]
-    (first (filter identity (map (partial collision-test player new-position) (vals (:players game)))))))
+;(defn collision? [game player-id new-position]
+;  (let [player (get-in game [:players player-id])]
+;    (first (filter identity (map (partial collision-test player new-position) (vals (:players game)))))))
 
-(defn prevent-collision [game player-id position new-position]
-  (if (collision? game player-id new-position) position new-position))
+;(defn prevent-collision [game player-id position new-position]
+;  (if (collision? game player-id new-position) position new-position))
 
 (defn move-user-player [game]
   (let [{:keys [position angle speed dead dead-time] :as player} (get-in game [:players :user])]
     (cond
-      (not dead) (update-player game (assoc player :position (prevent-collision game :user position
-                                                                                (model/valid-game-position game
-                                                                                                     (geometry/position-move-by position angle speed)))))
+      (not dead) (update-player game (assoc player :position (model/valid-game-position game
+                                                                                        (geometry/position-move-by position angle speed))))
       dead       (update-player game (assoc player :dead-time (+ 1 dead-time))))))
 
 (defn tick-user-player [game]
@@ -88,9 +87,8 @@
       (cond
         (not dead)             (-> (update-player game
                                                   (assoc computer-player
-                                                    :position (prevent-collision game computer-player-id position
-                                                                                 (model/valid-game-position game
-                                                                                                      (geometry/position-move-by position angle speed)))))
+                                                    :position (model/valid-game-position game
+                                                                                         (geometry/position-move-by position angle speed))))
                                    (maybe-shoot (:id computer-player)))
         (and dead
              (<= dead-time 30)) (update-player game (assoc computer-player :dead true
@@ -139,6 +137,8 @@
 (defn tick-bullets [game]
   (reduce tick-bullet game (vals (:bullets game))))
 
+;; Bullet Hit
+
 (defn damage-from-bullet [game player bullet]
   (let [damage (model/damage bullet)
         health (max (- (:health player) damage) 0)
@@ -159,13 +159,50 @@
       (reward-health-for-hit bullet)
       (remove-bullet bullet)))
 
-(defn collision-detect [game player]
+(defn bullet-hit-detect [game player]
   (if-let [bullet (hit-by-bullet player (model/bullets game))]
     (update-player-hit game player bullet)
     game))
 
-(defn tick-collision-detect [game]
-  (reduce collision-detect game (model/players game)))
+(defn tick-bullet-hit-detect [game]
+  (reduce bullet-hit-detect game (model/players game)))
+
+;; Player Collisions
+
+(defn player-collision? [player other-player]
+  (let [[player-x player-y]             (model/position player)
+        the-player-size                 (model/player-size player)
+        [other-player-x other-player-y] (:position other-player)
+        other-player-size               (model/player-size other-player)
+        collision?                      (and (not= (:id player) (:id other-player))
+                                             (>= (+ (quot the-player-size 2) (quot other-player-size 2))
+                                                 (+ (js/Math.abs (- player-x other-player-x))
+                                                    (js/Math.abs (- player-y other-player-y)))))]
+    collision?))
+
+(defn player-collision [player other-players]
+  (first (filter (partial player-collision? player) other-players)))
+
+(defn update-player-collision
+  "The bigger player takes health from the smaller when they collide."
+  [game player other-player]
+  (let [biggest       (if (> (model/player-size player) (model/player-size other-player)) player other-player)
+        smallest      (if (> (model/player-size player) (model/player-size other-player)) other-player player)
+        max-damage    (model/collision-damage biggest)
+        actual-damage (min max-damage (model/health smallest))]
+    (-> (model/decrease-player-health game (:id smallest) actual-damage)
+        (model/increase-player-health (:id biggest) actual-damage))))
+
+(defn player-collision-detect [game player]
+  (let [player       (model/get-player game (:id player))
+        other-player (when player (player-collision player (model/players game)))]
+    (if other-player
+      (update-player-collision game player other-player)
+      game)))
+
+(defn tick-player-collision-detect [game]
+  (reduce player-collision-detect game (model/players game)))
+
 
 (defn tick-game [game]
   (if (model/game-over? game)
@@ -173,4 +210,5 @@
     (-> (tick-user-player game)
         (tick-computer-players)
         (tick-bullets)
-        (tick-collision-detect))))
+        (tick-bullet-hit-detect)
+        (tick-player-collision-detect))))
