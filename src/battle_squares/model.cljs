@@ -9,6 +9,15 @@
 (defn health [player]
   (:health player))
 
+(defn direction [player]
+  (:angle player))
+
+(defn player-size [player]
+  (Math/sqrt (:health player)))
+
+(defn turret-length [player]
+  (* 0.6 (player-size player)))
+
 (defn players [game]
   (vals (:players game)))
 
@@ -54,9 +63,6 @@
 (defn get-player [game player-id]
   (get-in game [:players player-id]))
 
-(defn player-size [player]
-  (Math/sqrt (:health player)))
-
 (defn alive? [player]
   (pos? (:health player)))
 
@@ -79,9 +85,12 @@
                  :dead (= updated-health 0)))
       game))
 
+(defn turret-end [player]
+  (geometry/position-move-by (position player) (direction player) (turret-length player)))
+
 (defn bullet [player]
   {:id       (rand-int 100000)
-   :position (:position player)
+   :position (turret-end player)
    :angle    (:angle player)
    :life     0
    :speed    15

@@ -4,10 +4,10 @@
 
 ;; Render...
 
-(defn draw-line-at-angle [context [x y] angle length width]
+(defn draw-line-at-angle [context [x y] angle length width color]
   (.beginPath context)
   (set! (. context -lineWidth) width)
-  (set! (. context -strokeStyle) "#AA0000")
+  (set! (. context -strokeStyle) color)
   (.moveTo context x y)
   (.lineTo context (+ x (* length (Math/cos angle))) (+ y (* length (Math/sin angle))))
   (.stroke context))
@@ -39,11 +39,14 @@
   (doseq [bullet bullets]
     (draw-bullet context bullet visible-area)))
 
-(defn draw-turret [context position angle length width]
-  (draw-line-at-angle context position angle length width))
+(defn draw-turret [context position angle length width color]
+  (draw-line-at-angle context position angle length width color))
 
 (defn player-color [player]
-  (if (= :computer (:type player)) "#00FF00" "#0000FF"))
+  (if (= :computer (:type player)) "lightgreen" "lightblue"))
+
+(defn turret-color [player]
+  (if (= :computer (:type player)) "darkgreen" "darkblue"))
 
 (defn draw-player [context {position :position angle :angle :as player} visible-area]
   (when (area-contains visible-area position)
@@ -54,14 +57,18 @@
       (.translate context
                   (- (first position) (first visible-area))
                   (- (second position) (second visible-area)))
-      (.rotate context angle)
+      ;(.rotate context angle)
       (set! (.-fillStyle context) (player-color player))
-      (.fillRect context (quot player-size -2) (quot player-size -2) player-size player-size)
+      ;(.fillRect context (quot player-size -2) (quot player-size -2) player-size player-size)
+      (.beginPath context)
+      (.arc context 0 0 (quot player-size 2) 0 (* Math/PI 2) false)
+      (.fill context)
       (.restore context)
 
       ;; draw turret...
       (draw-turret context [(- (first position)  (first visible-area))
-                            (- (second position) (second visible-area))] angle (* 0.7 player-size) turret-width))
+                            (- (second position) (second visible-area))] angle (* 0.6 player-size)
+                   turret-width (turret-color player)))
     ))
 
 (defn draw-players [context players visible-area]

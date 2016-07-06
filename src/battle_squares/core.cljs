@@ -75,7 +75,7 @@
 ;;;;;;;;;;;;;;
 
 ;; TODO
-;; Allow ships to collide and take mass from each other.
 ;; Make aliens evade being shot.
 ;; Shoot from end of turret.
+;; Prettier players
 ;; Get slower when bigger.
