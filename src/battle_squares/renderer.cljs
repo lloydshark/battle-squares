@@ -57,12 +57,12 @@
       (.translate context
                   (- (first position) (first visible-area))
                   (- (second position) (second visible-area)))
-      ;(.rotate context angle)
+      (.rotate context angle)
       (set! (.-fillStyle context) (player-color player))
-      ;(.fillRect context (quot player-size -2) (quot player-size -2) player-size player-size)
-      (.beginPath context)
-      (.arc context 0 0 (quot player-size 2) 0 (* Math/PI 2) false)
-      (.fill context)
+      (.fillRect context (quot player-size -2) (quot player-size -2) player-size player-size)
+      ;(.beginPath context)
+      ;(.arc context 0 0 (quot player-size 2) 0 (* Math/PI 2) false)
+      ;(.fill context)
       (.restore context)
 
       ;; draw turret...

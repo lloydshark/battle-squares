@@ -88,6 +88,23 @@
 (defn turret-end [player]
   (geometry/position-move-by (position player) (direction player) (turret-length player)))
 
+(defn bullet-trajectory
+  ([player]          (bullet-trajectory player 450))
+  ([player distance] [(position player)
+                      (geometry/position-move-by (position player) (direction player) distance)]))
+
+(defn could-be-shot?
+  "Test if the other player could shoot the player.
+  To do this we check the trajectory of a bullet against the position of the player"
+  [player other-player]
+  (geometry/line-intersects-point-ish? (bullet-trajectory other-player) (position player)))
+
+(defn could-shoot?
+  "Test if the other player could shoot the player.
+  To do this we check the trajectory of a bullet against the position of the player"
+  [player other-player]
+  (geometry/line-intersects-point-ish? (bullet-trajectory player 350) (position other-player)))
+
 (defn bullet [player]
   {:id       (rand-int 100000)
    :position (turret-end player)
@@ -117,7 +134,7 @@
      :type     :computer
      :position [(rand-int right) (rand-int bottom)]
      :angle    0
-     :speed    (+ (rand-int 5) 1)
+     :speed    (+ (rand-int 6) 1)
      :health   2500}))
 
 (defn player [game]
@@ -139,10 +156,20 @@
     [(max 0 (min x (geometry/width game-area)))
      (max 0 (min y (geometry/height game-area)))]))
 
+(defn update-player-direction [game player-id angle]
+  (if-let [player (get-player game player-id)]
+    (assoc-in game [:players (:id player)] (assoc player :angle angle))
+    game))
+
+(defn update-player-speed [game player-id speed]
+  (if-let [player (get-player game player-id)]
+    (assoc-in game [:players (:id player)] (assoc player :speed speed))
+    game))
+
 ;;;;
 
-(def game-area-width 2500)
-(def game-area-height 1500)
+(def game-area-width 5000)
+(def game-area-height 3000)
 
 (defn initial-game-state [game]
   (let [visible-area (:canvas-area game)]
@@ -153,4 +180,4 @@
          :bullets         {}
          :brake           :off}
         (add-user-player)
-        (add-computer-players 2))))
+        (add-computer-players 10))))

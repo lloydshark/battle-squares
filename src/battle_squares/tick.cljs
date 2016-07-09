@@ -73,7 +73,7 @@
       (move-user-player)))
 
 (defn maybe-shoot [game player-id]
-  (if (> (rand-int 1000) 995)
+  (if (> (rand-int 1000) 990)
     (model/player-shoot game player-id)
     game))
 
@@ -104,14 +104,51 @@
     (let [[computer-x computer-y] (:position computer-player)
           user-player             (get-in game [:players :user])
           [player-x player-y]     (:position user-player)]
-      (update-player game (assoc computer-player
-                            :angle (geometry/angle-for-movement [(- player-x computer-x) (- player-y computer-y)]))))
+
+      (-> (model/update-player-direction game computer-player-id
+                                         (geometry/angle-for-movement [(- player-x computer-x)
+                                                                       (- player-y computer-y)]))
+          (model/update-player-speed computer-player-id 4)))
+    game))
+
+(defn maybe-chase-player [game computer-player-id]
+  (if (< (rand-int 5000) 4995)
+    (computer-chase-player game computer-player-id)
+    game))
+
+(defn could-be-shot-by-player? [game computer-player-id]
+  (if-let [computer-player (model/get-player game computer-player-id)]
+    (model/could-be-shot? computer-player (model/get-player game :user))))
+
+(defn take-evasive-action-turn-left [game computer-player-id]
+  (if-let [player (model/get-player game computer-player-id)]
+    (let [current-angle      (model/direction player)
+          normalised-angle   (+ current-angle Math/PI)
+          normalised-changed (+ normalised-angle (/ Math/PI 2))
+          new-angle          (rem normalised-changed (* Math/PI 2))]
+      (-> (model/update-player-direction game computer-player-id new-angle)
+          (model/update-player-speed computer-player-id 5)))
+    game))
+
+(defn maybe-avoid-being-shot [game computer-player-id]
+  (if (could-be-shot-by-player? game computer-player-id)
+    (take-evasive-action-turn-left game computer-player-id)
+    game))
+
+(defn could-shoot-player? [game computer-player-id]
+  (if-let [computer-player (model/get-player game computer-player-id)]
+    (model/could-shoot? computer-player (model/get-player game :user))))
+
+(defn stop-when-within-range [game computer-player-id]
+  (if (could-shoot-player? game computer-player-id)
+    (model/update-player-speed game computer-player-id 0)
     game))
 
 (defn computer-player-think [game computer-player-id]
-  (if (> (rand-int 5000) 4900)
-    (computer-chase-player game computer-player-id)
-    game))
+  (-> (maybe-chase-player game computer-player-id)
+      (maybe-avoid-being-shot computer-player-id)
+      (stop-when-within-range computer-player-id)
+      ))
 
 (defn tick-computer-player [game computer-player-id]
   (-> (computer-player-think game computer-player-id)
@@ -180,12 +217,9 @@
                                                     (js/Math.abs (- player-y other-player-y)))))]
     collision?))
 
-(defn player-collision [player other-players]
-  (first (filter (partial player-collision? player) other-players)))
-
 (defn update-player-collision
   "The bigger player takes health from the smaller when they collide."
-  [game player other-player]
+  [game [player other-player]]
   (let [biggest       (if (> (model/player-size player) (model/player-size other-player)) player other-player)
         smallest      (if (> (model/player-size player) (model/player-size other-player)) other-player player)
         max-damage    (model/collision-damage biggest)
@@ -193,15 +227,14 @@
     (-> (model/decrease-player-health game (:id smallest) actual-damage)
         (model/increase-player-health (:id biggest) actual-damage))))
 
-(defn player-collision-detect [game player]
-  (let [player       (model/get-player game (:id player))
-        other-player (when player (player-collision player (model/players game)))]
-    (if other-player
-      (update-player-collision game player other-player)
-      game)))
+(defn find-player-collisions [game]
+  (filter identity
+          (for [player       (model/players game)
+                other-player (model/players game)]
+            (when (player-collision? player other-player) [player other-player]))))
 
 (defn tick-player-collision-detect [game]
-  (reduce player-collision-detect game (model/players game)))
+  (reduce update-player-collision game (find-player-collisions game)))
 
 
 (defn tick-game [game]

@@ -75,7 +75,4 @@
 ;;;;;;;;;;;;;;
 
 ;; TODO
-;; Make aliens evade being shot.
-;; Shoot from end of turret.
-;; Prettier players
 ;; Get slower when bigger.
