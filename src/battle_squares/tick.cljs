@@ -120,11 +120,13 @@
   (if-let [computer-player (model/get-player game computer-player-id)]
     (model/could-be-shot? computer-player (model/get-player game :user))))
 
-(defn take-evasive-action-turn-left [game computer-player-id]
+(defn take-evasive-action-turn [game computer-player-id]
   (if-let [player (model/get-player game computer-player-id)]
     (let [current-angle      (model/direction player)
           normalised-angle   (+ current-angle Math/PI)
-          normalised-changed (+ normalised-angle (/ Math/PI 2))
+          normalised-changed (if (= :left (:evade player))
+                               (+ normalised-angle (/ Math/PI 2))
+                               (- normalised-angle (/ Math/PI 2)))
           new-angle          (rem normalised-changed (* Math/PI 2))]
       (-> (model/update-player-direction game computer-player-id new-angle)
           (model/update-player-speed computer-player-id 5)))
@@ -132,15 +134,22 @@
 
 (defn maybe-avoid-being-shot [game computer-player-id]
   (if (could-be-shot-by-player? game computer-player-id)
-    (take-evasive-action-turn-left game computer-player-id)
+    (take-evasive-action-turn game computer-player-id)
     game))
 
 (defn could-shoot-player? [game computer-player-id]
   (if-let [computer-player (model/get-player game computer-player-id)]
     (model/could-shoot? computer-player (model/get-player game :user))))
 
+(defn bigger-than-player? [game computer-player-id]
+  (let [computer-player (model/get-player game computer-player-id)
+        user            (model/get-player game :user)]
+    (> (model/player-size computer-player)
+       (model/player-size user))))
+
 (defn stop-when-within-range [game computer-player-id]
-  (if (could-shoot-player? game computer-player-id)
+  (if (and (could-shoot-player? game computer-player-id)
+           (bigger-than-player? game computer-player-id))
     (model/update-player-speed game computer-player-id 0)
     game))
 
@@ -187,7 +196,8 @@
 (defn reward-health-for-hit [[game damage] bullet]
   (if-let [owner (model/get-player game (model/owner-of bullet))]
     (if (and owner (model/alive? owner))
-      (update-player game (assoc owner :health (+ damage (:health owner))))
+      (update-player game (assoc owner :health (min model/max-health
+                                                    (+ damage (:health owner)))))
       game)
     game))
 
@@ -218,14 +228,17 @@
     collision?))
 
 (defn update-player-collision
-  "The bigger player takes health from the smaller when they collide."
+  "The smaller player takes health from the bigger when they collide."
   [game [player other-player]]
   (let [biggest       (if (> (model/player-size player) (model/player-size other-player)) player other-player)
         smallest      (if (> (model/player-size player) (model/player-size other-player)) other-player player)
         max-damage    (model/collision-damage biggest)
         actual-damage (min max-damage (model/health smallest))]
-    (-> (model/decrease-player-health game (:id smallest) actual-damage)
-        (model/increase-player-health (:id biggest) actual-damage))))
+    (if (or (= :player (:type player))
+            (= :player (:type other-player)))
+      (-> (model/decrease-player-health game (:id biggest) actual-damage)
+          (model/increase-player-health (:id smallest) actual-damage))
+      game)))
 
 (defn find-player-collisions [game]
   (filter identity

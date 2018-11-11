@@ -3,6 +3,8 @@
 
 ;; Accessors
 
+(def max-health 25000)
+
 (defn position [player]
   (:position player))
 
@@ -71,8 +73,9 @@
 
 (defn increase-player-health [game player-id health-increase]
   (if-let [player (get-player game player-id)]
-    (update-in game [:players player-id] assoc :health (+ (:health player)
-                                                          health-increase))
+    (update-in game [:players player-id] assoc :health (min max-health
+                                                            (+ (:health player)
+                                                            health-increase)))
     game))
 
 (defn decrease-player-health [game player-id health-decrease]
@@ -135,7 +138,8 @@
      :position [(rand-int right) (rand-int bottom)]
      :angle    0
      :speed    (+ (rand-int 6) 1)
-     :health   2500}))
+     :health   2500
+     :evade    (if (> 50 (rand-int 100)) :left :right)}))
 
 (defn player [game]
     {:id       :user
